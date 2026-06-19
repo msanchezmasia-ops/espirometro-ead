@@ -11,7 +11,8 @@ const V_OFFSET = 0.0;
 const K_CAL    = 3.5;
 
 function voltToFlow(volts: number): number {
-  return (volts - V_OFFSET) * K_CAL;
+  const flujo = (volts - V_OFFSET) * K_CAL;
+  return flujo > 0 ? flujo : 0; // Evitar flujos negativos por ruido
 }
 
 interface RawDato {
@@ -62,23 +63,53 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    // Asegurate de que estás usando tu variable de entorno correcta
+    // 1. Configuramos Pusher
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY || '76c0751b50d4cb355df3', {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'us2',
     });
 
-    // 1. EL CANAL TIENE QUE LLAMARSE IGUAL QUE EN ROUTE.TS
     const channel = pusher.subscribe('espirometro-canal');
 
-    // 2. EL EVENTO TIENE QUE LLAMARSE IGUAL
+    // 2. Lógica para recibir los datos punto por punto (Curva)
     channel.bind('nuevo-dato-curva', (dato: RawDato) => {
-      console.log("¡Dato recibido en la web!", dato);
-      // Acá va tu código que actualiza la gráfica...
+      // Si recibimos el primer dato, cambiamos el estado a midiendo
+      setEstado('midiendo');
+      
+      setPuntos((prevPuntos) => {
+        const last = prevPuntos.length > 0 ? prevPuntos[prevPuntos.length - 1] : { tiempo: 0, flujo: 0, volumen: 0 };
+        const dt = dato.tiempo - last.tiempo;
+        const flujo = voltToFlow(dato.volts);
+        
+        // Integración matemática para calcular volumen
+        const volumenAgregado = flujo * (dt > 0 ? dt : 0);
+        const volumen = last.volumen + volumenAgregado;
+        
+        const nuevoPunto = { tiempo: dato.tiempo, flujo, volumen };
+        
+        // Actualizamos el Pico de Flujo (PEF) si el flujo actual es mayor
+        setPef(prevPef => prevPef === null || flujo > prevPef ? flujo : prevPef);
+        
+        // Si pasamos exactamente por el segundo 1, guardamos el FEV1 en tiempo real
+        if (last.tiempo < 1 && dato.tiempo >= 1) {
+           setFev1t(volumen);
+        }
+
+        return [...prevPuntos, nuevoPunto];
+      });
     });
 
-    channel.bind('resultados-medicos', (resultado: any) => {
-      console.log("¡Resultados finales!", resultado);
-      // Acá actualizas fvc, fev1, etc...
+    // 3. Lógica para recibir el resultado final (Al soltar el botón en Arduino)
+    channel.bind('resultados-medicos', (resultado: { fvc: number, fev1: number }) => {
+      console.log("¡Resultados finales recibidos!", resultado);
+      setFvc(resultado.fvc);
+      
+      // Si el ESP32 mandó el fev1, lo usamos. Si no, usamos el que calculamos nosotros.
+      if (resultado.fev1) {
+        setFev1(resultado.fev1);
+        setFev1t(resultado.fev1);
+      }
+      
+      setEstado('completo');
     });
 
     return () => {
@@ -90,15 +121,15 @@ export default function Dashboard() {
   const flujoMax   = pef ? pef * 1.2 : 12;
 
   return (
-  <main className="min-h-screen bg-slate-100 p-6">
+    <main className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-5xl mx-auto">
 
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-slate-800">Espirómetro IoT</h1>
             <p className="text-slate-500 mt-1">
-              {estado === 'esperando' && 'Listo — presioná Iniciar y soplá'}
-              {estado === 'midiendo'  && 'Midiendo...'}
+              {estado === 'esperando' && 'Listo — presioná Iniciar y luego soplá'}
+              {estado === 'midiendo'  && 'Midiendo curva...'}
               {estado === 'completo'  && 'Maniobra completa'}
             </p>
           </div>
@@ -106,15 +137,17 @@ export default function Dashboard() {
             onClick={iniciarManiobra}
             className="px-6 py-3 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm"
           >
-            {estado === 'completo' ? 'Reiniciar' : 'Iniciar maniobra'}
+            {estado === 'completo' ? 'Nueva maniobra' : 'Limpiar Gráfica'}
           </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
+          {/* GRÁFICA 1: Volumen vs Tiempo */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-base font-bold text-slate-700 mb-4">Volumen vs Tiempo</h2>
-            <div className="h-72">
+            {/* ALTURA FIJA PARA EVITAR EL ERROR DE RECHARTS */}
+            <div className="w-full h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={puntos} margin={{ top: 8, right: 16, bottom: 16, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -130,9 +163,10 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* GRÁFICA 2: Flujo vs Volumen */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-base font-bold text-slate-700 mb-4">Flujo vs Volumen</h2>
-            <div className="h-72">
+            <div className="w-full h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -148,6 +182,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* TARJETAS DE RESULTADOS */}
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-center">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">FEV1</p>
