@@ -1,26 +1,31 @@
 import { NextResponse } from 'next/server';
 import Pusher from 'pusher';
 
-// Configuramos Pusher con las claves secretas del archivo .env
+// Configuramos Pusher (Soporta ambos nombres de variables por las dudas)
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID!,
-  key: process.env.PUSHER_KEY!,
+  key: process.env.NEXT_PUBLIC_PUSHER_KEY || process.env.PUSHER_KEY!,
   secret: process.env.PUSHER_SECRET!,
-  cluster: process.env.PUSHER_CLUSTER!,
+  cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || process.env.PUSHER_CLUSTER!,
   useTLS: true,
 });
 
-// Esta función POST es la que va a recibir la llamada del ESP32
 export async function POST(request: Request) {
   try {
-    // Leemos el dato (JSON) que manda el Arduino
     const body = await request.json();
     
-    // Le decimos a Pusher que "grite" el dato en el canal para que la gráfica lo escuche
-    await pusher.trigger('espirometro-canal', 'nuevo-dato-curva', body);
+    // 1. Verificamos si es el aviso final del Arduino
+    if (body.tipo === 'resultado_final') {
+      // Le decimos a Pusher que "grite" los resultados médicos finales
+      await pusher.trigger('espirometro-canal', 'resultados-medicos', body);
+      console.log("Se enviaron los resultados finales:", body);
+    } 
+    // 2. Si no es el final, entonces son puntos de la curva en tiempo real
+    else {
+      await pusher.trigger('espirometro-canal', 'nuevo-dato-curva', body);
+    }
 
-    // Le respondemos al ESP32 que todo salió bien (código 200)
-    return NextResponse.json({ success: true, message: "Dato enviado a la gráfica" });
+    return NextResponse.json({ success: true, message: "Dato procesado y enviado a Pusher" });
     
   } catch (error) {
     console.error("Error en la API:", error);
