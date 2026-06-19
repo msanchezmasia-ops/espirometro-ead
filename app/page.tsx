@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import Pusher from 'pusher-js';
 
-const V_OFFSET = 1.65;
+const V_OFFSET = 0.0;
 const K_CAL    = 3.5;
 
 function voltToFlow(volts: number): number {
