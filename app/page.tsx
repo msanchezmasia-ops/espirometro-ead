@@ -62,44 +62,35 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const pusher = new Pusher('76c0751b50d4cb355df3', { cluster: 'us2' });
+    // Asegurate de que estás usando tu variable de entorno correcta
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY || '76c0751b50d4cb355df3', {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'us2',
+    });
+
+    // 1. EL CANAL TIENE QUE LLAMARSE IGUAL QUE EN ROUTE.TS
     const channel = pusher.subscribe('espirometro-canal');
 
-    channel.bind('nuevo-dato-curva', (raw: RawDato) => {
-      const flujo = voltToFlow(raw.volts);
-      setEstado(prev => prev === 'esperando' ? 'midiendo' : prev);
-
-      setPuntos(prevPuntos => {
-        const prev = ultimoPunto.current;
-        let volumen = 0;
-        if (prev !== null) {
-          const dt = raw.tiempo - prev.tiempo;
-          volumen = prev.volumen + ((prev.flujo + flujo) / 2) * dt;
-        }
-        const nuevo: Punto = { tiempo: raw.tiempo, flujo, volumen };
-        ultimoPunto.current = nuevo;
-        setPef(prevPef => (prevPef === null || flujo > prevPef) ? flujo : prevPef);
-        if (raw.tiempo >= 1 && prev !== null && prev.tiempo < 1) {
-          setFev1t(volumen);
-        }
-        return [...prevPuntos, nuevo];
-      });
+    // 2. EL EVENTO TIENE QUE LLAMARSE IGUAL
+    channel.bind('nuevo-dato-curva', (dato: RawDato) => {
+      console.log("¡Dato recibido en la web!", dato);
+      // Acá va tu código que actualiza la gráfica...
     });
 
-    channel.bind('resultados-medicos', (res: { fvc: number; fev1: number }) => {
-      setFvc(res.fvc);
-      setFev1(res.fev1);
-      setEstado('completo');
+    channel.bind('resultados-medicos', (resultado: any) => {
+      console.log("¡Resultados finales!", resultado);
+      // Acá actualizas fvc, fev1, etc...
     });
 
-    return () => { pusher.unsubscribe('espirometro-canal'); };
+    return () => {
+      pusher.unsubscribe('espirometro-canal');
+    };
   }, []);
 
   const volumenMax = fvc ? fvc * 1.1 : 6;
   const flujoMax   = pef ? pef * 1.2 : 12;
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6">
+  <main className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-5xl mx-auto">
 
         <div className="flex items-center justify-between mb-6">
