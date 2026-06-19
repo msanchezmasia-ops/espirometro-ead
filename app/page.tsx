@@ -63,6 +63,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    Pusher.logToConsole = true;
     // 1. Configuramos Pusher
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY || '76c0751b50d4cb355df3', {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'us2',
