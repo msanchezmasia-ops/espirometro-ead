@@ -129,7 +129,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="tiempo" type="number" domain={[0, 'auto']} label={{ value: 'Tiempo (s)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} />
                   <YAxis domain={[0, volumenMax]} label={{ value: 'Volumen (L)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => [`${v.toFixed(3)} L`, 'Volumen']} labelFormatter={l => `t = ${Number(l).toFixed(2)} s`} />
+                  <Tooltip formatter={(v) => [`${Number(v).toFixed(3)} L`, 'Volumen']} labelFormatter={l => `t = ${Number(l).toFixed(2)} s`} />
                   <ReferenceLine x={1} stroke="#f59e0b" strokeDasharray="4 3" label={{ value: 'FEV1', position: 'top', fontSize: 11, fill: '#f59e0b' }} />
                   {fev1Punto && <ReferenceDot x={fev1Punto.tiempo} y={fev1Punto.volumen} r={5} fill="#f59e0b" stroke="#fff" strokeWidth={2} />}
                   {fvcPunto  && <ReferenceDot x={fvcPunto.tiempo}  y={fvcPunto.volumen}  r={5} fill="#10b981" stroke="#fff" strokeWidth={2} label={{ value: 'FVC', position: 'top', fontSize: 11, fill: '#10b981' }} />}
@@ -148,7 +148,7 @@ export default function Dashboard() {
                   <XAxis dataKey="volumen" type="number" domain={[0, volumenMax]} name="Volumen" label={{ value: 'Volumen (L)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} />
                   <YAxis dataKey="flujo" type="number" domain={[-2, flujoMax]} name="Flujo" label={{ value: 'Flujo (L/s)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} />
                   <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1} />
-                  <Tooltip cursor={false} formatter={(v: number, name: string) => [`${v.toFixed(2)} ${name === 'Flujo' ? 'L/s' : 'L'}`, name]} />
+                  <Tooltip cursor={false} formatter={(v, name) => [`${Number(v).toFixed(2)} ${name === 'Flujo' ? 'L/s' : 'L'}`, String(name)]} />
                   {pefPunto && <ReferenceDot x={pefPunto.volumen} y={pefPunto.flujo} r={5} fill="#ef4444" stroke="#fff" strokeWidth={2} label={{ value: 'PEF', position: 'top', fontSize: 11, fill: '#ef4444' }} />}
                   <Scatter data={loopFV} fill="#2563eb" line={{ stroke: '#2563eb', strokeWidth: 2.5 }} shape={() => null as unknown as React.ReactElement} isAnimationActive={false} />
                 </ScatterChart>
