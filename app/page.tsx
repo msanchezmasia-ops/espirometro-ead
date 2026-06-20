@@ -8,16 +8,27 @@ import {
 import Pusher from 'pusher-js';
 
 const V_OFFSET = 0.0;
-const K_CAL    = 3.5;
+// NUEVA CONSTANTE DE CALIBRACIÓN COMPENSADA
+const K_CAL    = 1.1; 
 
-function voltToFlow(volts: number): number {
-  const flujo = (volts - V_OFFSET) * K_CAL;
-  return flujo > 0 ? flujo : 0; // Evitar flujos negativos por ruido
+// FÓRMULA TERMODINÁMICA BTPS PARA CORRECCIÓN CLIMÁTICA
+function calcularFactorBTPS(tempC: number, humedad: number): number {
+  const PB = 760; // Presión atmosférica estándar (mmHg)
+  const PH2O_cuerpo = 47; // Presión de vapor de agua a 37°C
+  
+  // Ecuación de Antoine modificada para presión de vapor ambiental
+  const PH2O_amb = (humedad / 100.0) * Math.exp(20.386 - (5132.0 / (tempC + 273.15)));
+  
+  // Factor de expansión del volumen gaseoso
+  const factor = ((273.15 + 37.0) / (273.15 + tempC)) * ((PB - PH2O_amb) / (PB - PH2O_cuerpo));
+  return factor;
 }
 
 interface RawDato {
   tiempo: number;
   volts: number;
+  temp?: number;
+  hum?: number;
 }
 
 interface Punto {
@@ -63,34 +74,37 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    Pusher.logToConsole = true;
-    // 1. Configuramos Pusher
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY || '76c0751b50d4cb355df3', {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'us2',
     });
 
     const channel = pusher.subscribe('espirometro-canal');
 
-    // 2. Lógica para recibir los datos punto por punto (Curva)
     channel.bind('nuevo-dato-curva', (dato: RawDato) => {
-      // Si recibimos el primer dato, cambiamos el estado a midiendo
       setEstado('midiendo');
       
       setPuntos((prevPuntos) => {
         const last = prevPuntos.length > 0 ? prevPuntos[prevPuntos.length - 1] : { tiempo: 0, flujo: 0, volumen: 0 };
         const dt = dato.tiempo - last.tiempo;
-        const flujo = voltToFlow(dato.volts);
         
-        // Integración matemática para calcular volumen
+        // 1. Obtener datos climáticos del DHT22 (Fallback a 25°C y 50% si vienen vacíos)
+        const t = dato.temp ?? 25.0;
+        const h = dato.hum ?? 50.0;
+        
+        // 2. Calcular factor dinámico BTPS
+        const factorBTPS = calcularFactorBTPS(t, h);
+
+        // 3. Integración volumétrica aplicando calibración de escala y física climática
+        let flujo = (dato.volts - V_OFFSET) * K_CAL * factorBTPS;
+        if (flujo < 0) flujo = 0; 
+        
         const volumenAgregado = flujo * (dt > 0 ? dt : 0);
         const volumen = last.volumen + volumenAgregado;
         
         const nuevoPunto = { tiempo: dato.tiempo, flujo, volumen };
         
-        // Actualizamos el Pico de Flujo (PEF) si el flujo actual es mayor
         setPef(prevPef => prevPef === null || flujo > prevPef ? flujo : prevPef);
         
-        // Si pasamos exactamente por el segundo 1, guardamos el FEV1 en tiempo real
         if (last.tiempo < 1 && dato.tiempo >= 1) {
            setFev1t(volumen);
         }
@@ -99,17 +113,12 @@ export default function Dashboard() {
       });
     });
 
-    // 3. Lógica para recibir el resultado final (Al soltar el botón en Arduino)
     channel.bind('resultados-medicos', (resultado: { fvc: number, fev1: number }) => {
-      console.log("¡Resultados finales recibidos!", resultado);
       setFvc(resultado.fvc);
-      
-      // Si el ESP32 mandó el fev1, lo usamos. Si no, usamos el que calculamos nosotros.
       if (resultado.fev1) {
         setFev1(resultado.fev1);
         setFev1t(resultado.fev1);
       }
-      
       setEstado('completo');
     });
 
@@ -129,9 +138,9 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold text-slate-800">Espirómetro IoT</h1>
             <p className="text-slate-500 mt-1">
-              {estado === 'esperando' && 'Listo — presioná Iniciar y luego soplá'}
-              {estado === 'midiendo'  && 'Midiendo curva...'}
-              {estado === 'completo'  && 'Maniobra completa'}
+              {estado === 'esperando' && 'Listo — presioná el botón físico y soplá'}
+              {estado === 'midiendo'  && 'Midiendo curvas y calculando corrección BTPS...'}
+              {estado === 'completo'  && 'Maniobra guardada exitosamente'}
             </p>
           </div>
           <button
@@ -146,14 +155,14 @@ export default function Dashboard() {
 
           {/* GRÁFICA 1: Volumen vs Tiempo */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-base font-bold text-slate-700 mb-4">Volumen vs Tiempo</h2>
-            {/* ALTURA FIJA PARA EVITAR EL ERROR DE RECHARTS */}
+            <h2 className="text-base font-bold text-slate-700 mb-4">Volumen vs Tiempo (Corregido BTPS)</h2>
             <div className="w-full h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                 <LineChart data={puntos} margin={{ top: 8, right: 16, bottom: 16, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="tiempo" type="number" domain={[0, 'auto']} label={{ value: 'Tiempo (s)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} />
-                  <YAxis domain={[0, volumenMax]} label={{ value: 'Volumen (L)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} />
+                  {/* Se incluyeron los formatters para fijar un decimal limpio en los ejes */}
+                  <XAxis dataKey="tiempo" type="number" domain={[0, 'auto']} label={{ value: 'Tiempo (s)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
+                  <YAxis domain={[0, volumenMax]} label={{ value: 'Volumen (L)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
                   <Tooltip formatter={(v) => [`${Number(v).toFixed(3)} L`, 'Volumen']} labelFormatter={l => `t = ${Number(l).toFixed(2)} s`} />
                   <ReferenceLine x={1} stroke="#f59e0b" strokeDasharray="4 3" label={{ value: 'FEV1', position: 'top', fontSize: 11, fill: '#f59e0b' }} />
                   {fev1Punto && <ReferenceDot x={fev1Punto.tiempo} y={fev1Punto.volumen} r={5} fill="#f59e0b" stroke="#fff" strokeWidth={2} />}
@@ -166,13 +175,13 @@ export default function Dashboard() {
 
           {/* GRÁFICA 2: Flujo vs Volumen */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-base font-bold text-slate-700 mb-4">Flujo vs Volumen</h2>
+            <h2 className="text-base font-bold text-slate-700 mb-4">Flujo vs Volumen (Aleta de Tiburón)</h2>
             <div className="w-full h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                 <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="volumen" type="number" domain={[0, volumenMax]} name="Volumen" label={{ value: 'Volumen (L)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="flujo" type="number" domain={[-2, flujoMax]} name="Flujo" label={{ value: 'Flujo (L/s)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="volumen" type="number" domain={[0, volumenMax]} name="Volumen" label={{ value: 'Volumen (L)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
+                  <YAxis dataKey="flujo" type="number" domain={[-2, flujoMax]} name="Flujo" label={{ value: 'Flujo (L/s)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
                   <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1} />
                   <Tooltip cursor={false} formatter={(v, name) => [`${Number(v).toFixed(2)} ${name === 'Flujo' ? 'L/s' : 'L'}`, String(name)]} />
                   {pefPunto && <ReferenceDot x={pefPunto.volumen} y={pefPunto.flujo} r={5} fill="#ef4444" stroke="#fff" strokeWidth={2} label={{ value: 'PEF', position: 'top', fontSize: 11, fill: '#ef4444' }} />}
@@ -183,7 +192,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* TARJETAS DE RESULTADOS */}
+        {/* CONTENEDOR DE METRICAS PRINCIPALES */}
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-center">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">FEV1</p>
