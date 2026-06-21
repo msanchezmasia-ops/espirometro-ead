@@ -46,6 +46,12 @@ export default function Dashboard() {
   const [pef, setPef]         = useState<number | null>(null);
   const [fev1t, setFev1t]     = useState<number | null>(null);
   const [estado, setEstado]   = useState<Estado>('esperando');
+  const [tempAmbiente, setTempAmbiente] = useState<number | null>(null);
+  const [humAmbiente, setHumAmbiente]   = useState<number | null>(null);
+   // Variables para guardar el clima y la corrección
+  const [tempAmbiente, setTempAmbiente] = useState<number>(25.0);
+  const [humAmbiente, setHumAmbiente] = useState<number>(50.0);
+  const [factorBTPS, setFactorBTPS] = useState<number>(1.0);  
 
   const ultimoPunto = useRef<Punto | null>(null);
 
@@ -71,6 +77,7 @@ export default function Dashboard() {
     setFev1t(null);
     ultimoPunto.current = null;
     setEstado('midiendo');
+    
   }, []);
 
   useEffect(() => {
@@ -82,7 +89,11 @@ export default function Dashboard() {
 
     channel.bind('nuevo-dato-curva', (dato: RawDato) => {
       setEstado('midiendo');
+
+      if (dato.temp) setTempAmbiente(dato.temp);
+      if (dato.hum) setHumAmbiente(dato.hum);
       
+
       setPuntos((prevPuntos) => {
         const last = prevPuntos.length > 0 ? prevPuntos[prevPuntos.length - 1] : { tiempo: 0, flujo: 0, volumen: 0 };
         const dt = dato.tiempo - last.tiempo;
@@ -181,7 +192,7 @@ export default function Dashboard() {
                 <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="volumen" type="number" domain={[0, volumenMax]} name="Volumen" label={{ value: 'Volumen (L)', position: 'insideBottom', offset: -8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
-                  <YAxis dataKey="flujo" type="number" domain={[0, flujoMax]} name="Flujo" label={{ value: 'Flujo (L/s)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
+                  <YAxis dataKey="flujo" type="number" domain={[-2, flujoMax]} name="Flujo" label={{ value: 'Flujo (L/s)', angle: -90, position: 'insideLeft', offset: 8, fontSize: 12 }} tick={{ fontSize: 11 }} tickFormatter={(tick) => Number(tick).toFixed(1)} />
                   <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1} />
                   <Tooltip cursor={false} formatter={(v, name) => [`${Number(v).toFixed(2)} ${name === 'Flujo' ? 'L/s' : 'L'}`, String(name)]} />
                   {pefPunto && <ReferenceDot x={pefPunto.volumen} y={pefPunto.flujo} r={5} fill="#ef4444" stroke="#fff" strokeWidth={2} label={{ value: 'PEF', position: 'top', fontSize: 11, fill: '#ef4444' }} />}
@@ -192,8 +203,28 @@ export default function Dashboard() {
           </div>
         </div>
 
+    {/* --- NUEVA TARJETA DE CONDICIONES AMBIENTALES Y BTPS --- */}
+    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider m-0">
+          Condiciones Ambientales
+        </h4>
+        <div className="flex gap-4 text-slate-700 font-medium text-lg">
+          <span>🌡️ {tempAmbiente.toFixed(1)}°C</span>
+          <span>💧 {humAmbiente.toFixed(0)}% HR</span>
+        </div>
+      </div>
+      
+      <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 mt-4 sm:mt-0 w-full sm:w-auto justify-center">
+        <span>✅</span>
+        <span>Corrección BTPS automática: <b>{factorAplicado.toFixed(3)}</b></span>
+      </div>
+    </div>
+    {/* ------------------------------------------------------- */}
+
         {/* CONTENEDOR DE METRICAS PRINCIPALES */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* CAMBIA "grid-cols-3" POR "grid-cols-2 md:grid-cols-5" */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-center">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">FEV1</p>
             <p className="text-4xl font-bold text-amber-500">{fev1 !== null ? fev1.toFixed(2) : '—'}</p>
@@ -210,6 +241,18 @@ export default function Dashboard() {
               {fev1 !== null && fvc !== null && fvc > 0 ? `${((fev1 / fvc) * 100).toFixed(0)}%` : '—'}
             </p>
             <p className="text-slate-400 text-sm mt-1">Porcentaje</p>
+          </div>
+
+          {/* ---> AGREGA ESTAS DOS TARJETAS NUEVAS <--- */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-center">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Temp</p>
+            <p className="text-4xl font-bold text-rose-500">{tempAmbiente !== null ? tempAmbiente.toFixed(1) : '—'}°</p>
+            <p className="text-slate-400 text-sm mt-1">Celsius</p>
+          </div>
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-center">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Humedad</p>
+            <p className="text-4xl font-bold text-sky-500">{humAmbiente !== null ? humAmbiente.toFixed(0) : '—'}%</p>
+            <p className="text-slate-400 text-sm mt-1">Relativa</p>
           </div>
         </div>
 
