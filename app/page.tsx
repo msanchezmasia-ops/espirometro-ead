@@ -47,7 +47,7 @@ export default function Dashboard() {
   const [fev1t, setFev1t]     = useState<number | null>(null);
   const [estado, setEstado]   = useState<Estado>('esperando');
   
-  // Variables para guardar el clima y la corrección
+  // Variables para guardar el clima y la corrección (arregladas)
   const [tempAmbiente, setTempAmbiente] = useState<number | null>(null);
   const [humAmbiente, setHumAmbiente]   = useState<number | null>(null);
   const [factorBTPS, setFactorBTPS]     = useState<number | null>(null);  
